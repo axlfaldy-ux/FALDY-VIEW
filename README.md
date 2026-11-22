@@ -26,16 +26,16 @@ Alur ini hanya memakai state dalam memori pada satu instalasi aplikasi. Kode buk
 
 ### Layanan untuk pairing lintas perangkat
 
-Implementasi nyata memerlukan backend dan transport berikut sebelum pairing dapat menghubungkan dua perangkat:
+Fondasi API pairing self-hosted tersedia di `backend/` dan tidak menggunakan provider berbayar. API ini belum dihubungkan ke aplikasi Android dan belum dideploy. Implementasi nyata memerlukan komponen berikut sebelum pairing dapat menghubungkan dua perangkat:
 
-- API HTTPS untuk meminta kode pairing, menukar kode dengan permintaan sesi, dan membatalkan sesi.
-- Penyimpanan sesi sementara dengan kode sekali pakai yang kedaluwarsa, penyimpanan kode secara aman, serta pembatasan percobaan dan laju permintaan.
+- API HTTPS untuk meminta kode pairing, menukar kode dengan permintaan sesi, polling status, persetujuan/penolakan, dan pembatalan sesi. Route dan format request ada di `backend/README.md`.
+- Penyimpanan sesi bersama sementara (misalnya Redis) jika service dijalankan lebih dari satu instance; kode sekali pakai yang kedaluwarsa, penyimpanan kode sebagai HMAC, serta pembatasan percobaan dan laju permintaan.
 - Kanal realtime terautentikasi (misalnya WebSocket atau layanan push) agar permintaan Receiver, persetujuan Controller, dan pemutusan tersinkron antarperangkat.
-- Autentikasi perangkat/pengguna dan token sesi berumur pendek dengan cakupan minimum; kode enam digit saja tidak cukup sebagai autentikasi.
+- Identitas/perangkat terautentikasi dan token sesi berumur pendek dengan cakupan minimum; API sekarang memakai token kapabilitas acak per-sesi, tetapi belum memverifikasi identitas akun/perangkat.
 - Proses persetujuan yang jelas di Receiver sebelum berbagi layar dimulai, indikator sesi aktif, dan cara berhenti yang selalu tersedia.
 - Saat tahap WebRTC dimulai: signaling server, STUN, dan TURN. Secret TURN harus diterbitkan oleh backend secara terbatas dan berumur pendek.
 
-Belum ada endpoint atau penyedia backend yang dipilih maupun dikonfigurasi. Keputusan pemilihan layanan, kebijakan retensi, rate limit, dan model autentikasi diperlukan sebelum mengaktifkan koneksi lintas perangkat.
+Belum ada host, domain, endpoint, atau penyedia layanan yang dipilih maupun dikonfigurasi. Source backend dan dependency Node.js yang digunakan gratis/open source; biaya hosting, domain, TLS, database, STUN/TURN, dan bandwidth bergantung pada provider serta trafik. Tidak ada layanan eksternal atau berbayar yang digunakan atau dipilih. Kebutuhan, estimasi biaya provider, dan kebijakan retensi perlu dibahas sebelum deployment.
 
 ## Status keamanan dan cakupan
 
