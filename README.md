@@ -18,7 +18,7 @@ Fondasi aplikasi Android native untuk melihat layar perangkat lain dengan perset
 
 URL backend diatur melalui property Gradle `faldyApiBaseUrl`, misalnya `gradle -PfaldyApiBaseUrl=https://api.example.test :app:assembleDebug` atau property pada `~/.gradle/gradle.properties`. Jangan commit URL privat atau kredensial. Client menolak HTTP untuk server publik; HTTP hanya diizinkan untuk loopback. Android Network Security Config juga menolak cleartext secara default.
 
-Workflow GitHub Actions membangun APK debug dan menjalankan unit test pada push ke `main`, pull request, dan pemicu manual. APK diunggah sebagai artifact workflow. Job terpisah menyalakan emulator Android 14 (API 34) dan menjalankan `:app:connectedDebugAndroidTest`; hasil emulator baru dapat diklaim setelah job tersebut selesai.
+Workflow GitHub Actions membangun APK debug, menjalankan unit test, dan mengompilasi APK tes instrumentasi pada push ke `main`, pull request, dan pemicu manual. APK debug diunggah sebagai artifact workflow. Runtime instrumentasi belum dapat dijalankan pada runner Ubuntu GitHub-hosted: log percobaan Android 14 menunjukkan akselerasi hardware tidak tersedia dan emulator timeout sebelum boot. Pengujian `app/src/androidTest` tetap tersedia, tetapi memerlukan runner dengan emulator berakselerasi atau perangkat Android untuk dieksekusi.
 
 ## Integrasi pairing Android
 
