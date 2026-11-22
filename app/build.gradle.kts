@@ -7,6 +7,12 @@ plugins {
 android {
     namespace = "com.faldy.remoteview"
     compileSdk = 35
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     defaultConfig {
         applicationId = "com.faldy.remoteview"
         minSdk = 26
@@ -15,6 +21,12 @@ android {
         versionName = "0.1.0"
     }
     buildFeatures { compose = true }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }
 
 dependencies {
