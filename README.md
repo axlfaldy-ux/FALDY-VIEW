@@ -14,9 +14,9 @@ Fondasi aplikasi Android native untuk melihat layar perangkat lain dengan perset
 1. Buka repository ini di Android Studio dengan Android SDK 35 terpasang.
 2. Sinkronkan Gradle.
 3. Jalankan konfigurasi `app` pada emulator atau perangkat Android.
-4. Untuk APK debug, jalankan `gradle :app:assembleDebug` (atau gunakan wrapper Gradle jika tersedia).
+4. Untuk APK debug, jalankan `./gradlew :app:assembleDebug`. Gradle Wrapper mengunduh Gradle 8.7 dan memverifikasi checksum distribusinya.
 
-URL backend diatur melalui property Gradle `faldyApiBaseUrl`, misalnya `gradle -PfaldyApiBaseUrl=https://api.example.test :app:assembleDebug` atau property pada `~/.gradle/gradle.properties`. Jangan commit URL privat atau kredensial. Client menolak HTTP untuk server publik; HTTP hanya diizinkan untuk loopback. Android Network Security Config juga menolak cleartext secara default.
+URL backend diatur melalui property Gradle `faldyApiBaseUrl`, misalnya `./gradlew -PfaldyApiBaseUrl=https://api.example.test :app:assembleDebug` atau property pada `~/.gradle/gradle.properties`. Jangan commit URL privat atau kredensial. Client menolak HTTP untuk server publik; HTTP hanya diizinkan untuk loopback. Android Network Security Config juga menolak cleartext secara default.
 
 Workflow GitHub Actions membangun APK debug, menjalankan unit test, dan mengompilasi APK tes instrumentasi pada push ke `main`, pull request, dan pemicu manual. APK debug diunggah sebagai artifact workflow. Runtime instrumentasi belum dapat dijalankan pada runner Ubuntu GitHub-hosted: log percobaan Android 14 menunjukkan akselerasi hardware tidak tersedia dan emulator timeout sebelum boot. Pengujian `app/src/androidTest` tetap tersedia, tetapi memerlukan runner dengan emulator berakselerasi atau perangkat Android untuk dieksekusi.
 
