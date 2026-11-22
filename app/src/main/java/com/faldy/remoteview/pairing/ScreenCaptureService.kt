@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -62,7 +63,7 @@ class ScreenCaptureService : Service() {
             startAsForegroundService()
             val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Int.MIN_VALUE) ?: Int.MIN_VALUE
             val resultData = projectionResult(intent)
-            if (resultCode != RESULT_OK || resultData == null) {
+            if (resultCode != Activity.RESULT_OK || resultData == null) {
                 throw IllegalArgumentException("Persetujuan MediaProjection tidak valid")
             }
             val manager = getSystemService(MediaProjectionManager::class.java)
