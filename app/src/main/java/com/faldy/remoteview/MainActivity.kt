@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,33 +32,42 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import java.security.SecureRandom
+import androidx.lifecycle.ViewModelProvider
+import com.faldy.remoteview.pairing.PairingRole
+import com.faldy.remoteview.pairing.PairingStatus
+import com.faldy.remoteview.pairing.PairingUiState
+import com.faldy.remoteview.pairing.PairingViewModel
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 private enum class Screen { Dashboard, Controller, Receiver }
-private enum class PairingStatus { Disconnected, Waiting, ApprovalPending, Connected }
 
 class MainActivity : ComponentActivity() {
+    private lateinit var pairingViewModel: PairingViewModel
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { FaldyViewApp() }
+        pairingViewModel = ViewModelProvider(
+            this,
+            PairingViewModel.Factory(BuildConfig.API_BASE_URL)
+        )[PairingViewModel::class.java]
+        setContent { FaldyViewApp(pairingViewModel) }
     }
 }
 
 @Composable
-private fun FaldyViewApp() {
+private fun FaldyViewApp(pairingViewModel: PairingViewModel) {
     var screen by remember { mutableStateOf(Screen.Dashboard) }
     var showSettings by remember { mutableStateOf(false) }
-    var pairingStatus by remember { mutableStateOf(PairingStatus.Disconnected) }
-    var pairingCode by remember { mutableStateOf("") }
     var enteredCode by remember { mutableStateOf("") }
-    var feedback by remember { mutableStateOf<String?>(null) }
+    val state by pairingViewModel.state.collectAsState()
     val muted = Color(0xFF657086)
 
     MaterialTheme {
         Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F7FB)) {
             Column(
                 Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(22.dp)
+                verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column {
@@ -70,63 +81,55 @@ private fun FaldyViewApp() {
                     }
                 }
 
+                if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                state.error?.let { ErrorNotice(it) }
+                if (state.isReconnecting) Text("Mencoba menyambung kembali dengan aman…", color = muted)
+
                 when (screen) {
                     Screen.Dashboard -> {
-                        StatusCard(pairingStatus, muted)
+                        StatusCard(state.status, muted)
                         Text("Pilih mode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         Button(
                             onClick = {
-                                if (pairingStatus == PairingStatus.Disconnected) {
-                                    pairingCode = newPairingCode()
-                                    pairingStatus = PairingStatus.Waiting
-                                    enteredCode = ""
-                                    feedback = null
-                                }
+                                if (state.role != PairingRole.Controller) pairingViewModel.createSession()
                                 screen = Screen.Controller
                             },
+                            enabled = !state.isLoading && (state.sessionId == null || state.role == PairingRole.Controller),
                             modifier = Modifier.fillMaxWidth().height(58.dp),
                             shape = RoundedCornerShape(14.dp)
-                        ) { Text(if (pairingStatus == PairingStatus.Disconnected) "Controller · Buat kode" else "Controller · Buka sesi") }
+                        ) {
+                            Text(if (state.sessionId == null || state.role != PairingRole.Controller) "Controller · Buat kode" else "Controller · Buka sesi")
+                        }
                         OutlinedButton(
-                            onClick = { enteredCode = ""; feedback = null; screen = Screen.Receiver },
+                            onClick = { enteredCode = ""; screen = Screen.Receiver },
+                            enabled = !state.isLoading && (state.sessionId == null || state.role == PairingRole.Receiver),
                             modifier = Modifier.fillMaxWidth().height(58.dp),
                             shape = RoundedCornerShape(14.dp)
                         ) { Text("Receiver · Masukkan kode") }
-                        DemoNotice(muted)
-                        if (showSettings) SettingsNotice(muted)
+                        if (showSettings) SettingsNotice(BuildConfig.API_BASE_URL, muted)
                     }
                     Screen.Controller -> ControllerScreen(
-                        status = pairingStatus,
-                        code = pairingCode,
-                        feedback = feedback,
-                        onApprove = { pairingStatus = PairingStatus.Connected; feedback = "Persetujuan diberikan. Sesi lokal aktif." },
-                        onReject = { pairingStatus = PairingStatus.Disconnected; pairingCode = ""; feedback = "Permintaan ditolak." },
-                        onCancel = { pairingStatus = PairingStatus.Disconnected; pairingCode = ""; feedback = "Sesi dibatalkan." },
-                        onDisconnect = { pairingStatus = PairingStatus.Disconnected; pairingCode = ""; feedback = "Sesi diputus." },
+                        state = state,
+                        onCreate = pairingViewModel::createSession,
+                        onApprove = pairingViewModel::approve,
+                        onReject = pairingViewModel::reject,
+                        onCancel = pairingViewModel::cancel,
+                        onDisconnect = pairingViewModel::disconnect,
                         muted = muted
                     )
                     Screen.Receiver -> ReceiverScreen(
-                        status = pairingStatus,
+                        state = state,
                         code = enteredCode,
-                        feedback = feedback,
                         onCodeChange = { enteredCode = it.filter(Char::isDigit).take(6) },
-                        onSubmit = {
-                            if (pairingStatus == PairingStatus.Waiting && enteredCode.length == 6 && enteredCode == pairingCode) {
-                                pairingStatus = PairingStatus.ApprovalPending
-                                feedback = "Kode cocok. Menunggu persetujuan Controller pada prototipe lokal."
-                            } else {
-                                feedback = "Kode tidak valid atau tidak ada sesi lokal yang menunggu."
-                            }
-                        },
-                        onCancel = { pairingStatus = PairingStatus.Disconnected; pairingCode = ""; feedback = "Permintaan dibatalkan." },
-                        onDisconnect = { pairingStatus = PairingStatus.Disconnected; pairingCode = ""; feedback = "Sesi diputus." },
-                        onReviewRequest = { screen = Screen.Controller },
+                        onJoin = { pairingViewModel.joinSession(enteredCode) },
+                        onLeave = pairingViewModel::leave,
+                        onDisconnect = pairingViewModel::disconnect,
                         muted = muted
                     )
                 }
 
                 Spacer(Modifier.weight(1f))
-                Text("Berbagi layar dan kontrol belum tersedia.", style = MaterialTheme.typography.bodySmall, color = muted)
+                Text("Pairing memakai API HTTPS. Berbagi layar dan kontrol belum tersedia.", style = MaterialTheme.typography.bodySmall, color = muted)
             }
         }
     }
@@ -144,9 +147,8 @@ private fun StatusCard(status: PairingStatus, muted: Color) {
 
 @Composable
 private fun ControllerScreen(
-    status: PairingStatus,
-    code: String,
-    feedback: String?,
+    state: PairingUiState,
+    onCreate: () -> Unit,
     onApprove: () -> Unit,
     onReject: () -> Unit,
     onCancel: () -> Unit,
@@ -154,40 +156,41 @@ private fun ControllerScreen(
     muted: Color
 ) {
     Text("Controller", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-    StatusCard(status, muted)
-    if (status == PairingStatus.Waiting) {
+    StatusCard(state.status, muted)
+    if (state.status == PairingStatus.Disconnected) {
+        Button(onClick = onCreate, enabled = !state.isLoading, modifier = Modifier.fillMaxWidth()) { Text("Buat sesi dan kode") }
+    }
+    if (state.role == PairingRole.Controller && state.status == PairingStatus.Waiting) {
         Text("Kode pairing", style = MaterialTheme.typography.titleMedium)
-        Text(code, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-        Text("Bagikan kode ini kepada Receiver. Kode hanya berlaku pada prototipe di perangkat ini.", color = muted)
-        OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Batalkan sesi") }
+        Text(state.pairingCode.orEmpty(), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        state.expiresAt?.let { Text("Berlaku sampai ${formatExpiry(it)}", color = muted) }
+        Text("Bagikan kode ini kepada Receiver. Kode sekali pakai.", color = muted)
+        OutlinedButton(onClick = onCancel, enabled = !state.isLoading, modifier = Modifier.fillMaxWidth()) { Text("Batalkan sesi") }
     }
-    if (status == PairingStatus.ApprovalPending) {
-        Text("Permintaan Receiver diterima. Pastikan Anda menyetujui perangkat yang benar.", color = muted)
-        Button(onClick = onApprove, modifier = Modifier.fillMaxWidth()) { Text("Terima permintaan pairing") }
-        OutlinedButton(onClick = onReject, modifier = Modifier.fillMaxWidth()) { Text("Tolak permintaan") }
+    if (state.role == PairingRole.Controller && state.status == PairingStatus.ApprovalPending) {
+        Text("Receiver meminta bergabung. Tinjau permintaan sebelum menerima.", color = muted)
+        Button(onClick = onApprove, enabled = !state.isLoading, modifier = Modifier.fillMaxWidth()) { Text("Setujui pairing") }
+        OutlinedButton(onClick = onReject, enabled = !state.isLoading, modifier = Modifier.fillMaxWidth()) { Text("Tolak permintaan") }
     }
-    if (status == PairingStatus.Connected) {
-        Text("Persetujuan tercatat. Ini hanya status lokal; belum ada koneksi antarperangkat.", color = muted)
-        OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) { Text("Putuskan koneksi") }
+    if (state.role == PairingRole.Controller && state.status == PairingStatus.Connected) {
+        Text("Pairing disetujui. Belum ada koneksi media atau kontrol layar.", color = muted)
+        OutlinedButton(onClick = onCancel, enabled = !state.isLoading, modifier = Modifier.fillMaxWidth()) { Text("Akhiri sesi") }
     }
-    feedback?.let { Text(it, color = muted) }
 }
 
 @Composable
 private fun ReceiverScreen(
-    status: PairingStatus,
+    state: PairingUiState,
     code: String,
-    feedback: String?,
     onCodeChange: (String) -> Unit,
-    onSubmit: () -> Unit,
-    onCancel: () -> Unit,
+    onJoin: () -> Unit,
+    onLeave: () -> Unit,
     onDisconnect: () -> Unit,
-    onReviewRequest: () -> Unit,
     muted: Color
 ) {
     Text("Receiver", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-    StatusCard(status, muted)
-    if (status == PairingStatus.Disconnected || status == PairingStatus.Waiting) {
+    StatusCard(state.status, muted)
+    if (state.sessionId == null) {
         OutlinedTextField(
             value = code,
             onValueChange = onCodeChange,
@@ -196,43 +199,45 @@ private fun ReceiverScreen(
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
-        Button(onClick = onSubmit, enabled = code.length == 6, modifier = Modifier.fillMaxWidth()) { Text("Kirim permintaan") }
+        Button(onClick = onJoin, enabled = code.length == 6 && !state.isLoading, modifier = Modifier.fillMaxWidth()) {
+            Text("Kirim permintaan bergabung")
+        }
     }
-    if (status == PairingStatus.ApprovalPending) {
-        Text("Permintaan menunggu keputusan Controller. Memasukkan kode adalah tindakan Receiver untuk memulai pairing.", color = muted)
-        OutlinedButton(onClick = onReviewRequest, modifier = Modifier.fillMaxWidth()) { Text("Tinjau di Controller") }
-        OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Batalkan permintaan") }
+    if (state.role == PairingRole.Receiver && state.status == PairingStatus.ApprovalPending) {
+        Text("Permintaan terkirim. Menunggu persetujuan Controller.", color = muted)
+        state.expiresAt?.let { Text("Permintaan kedaluwarsa ${formatExpiry(it)}", color = muted) }
+        OutlinedButton(onClick = onLeave, enabled = !state.isLoading, modifier = Modifier.fillMaxWidth()) { Text("Batalkan permintaan") }
     }
-    if (status == PairingStatus.Connected) {
-        Text("Persetujuan tercatat. Ini hanya status lokal; belum ada koneksi antarperangkat.", color = muted)
-        OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) { Text("Putuskan koneksi") }
-    }
-    feedback?.let { Text(it, color = muted) }
-    DemoNotice(muted)
-}
-
-@Composable
-private fun DemoNotice(muted: Color) {
-    Surface(shape = RoundedCornerShape(14.dp), color = Color.White) {
-        Text(
-            "Prototipe lokal: kode dan persetujuan hanya disimpan di memori aplikasi ini. Perangkat lain belum dapat terhubung.",
-            Modifier.padding(16.dp), color = muted
-        )
+    if (state.role == PairingRole.Receiver && state.status == PairingStatus.Connected) {
+        Text("Pairing disetujui. Berbagi layar belum dimulai.", color = muted)
+        OutlinedButton(onClick = onDisconnect, enabled = !state.isLoading, modifier = Modifier.fillMaxWidth()) { Text("Putuskan sesi") }
     }
 }
 
 @Composable
-private fun SettingsNotice(muted: Color) {
+private fun ErrorNotice(message: String) {
+    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFFFEEEE)) {
+        Text(message, Modifier.fillMaxWidth().padding(14.dp), color = Color(0xFF9B1C1C))
+    }
+}
+
+@Composable
+private fun SettingsNotice(baseUrl: String, muted: Color) {
     Surface(shape = RoundedCornerShape(14.dp), color = Color.White) {
-        Text("Pengaturan akan tersedia pada tahap berikutnya.", Modifier.padding(16.dp), color = muted)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("API pairing", fontWeight = FontWeight.SemiBold)
+            Text(baseUrl.ifBlank { "Belum dikonfigurasi" }, color = muted)
+            Text("Atur Gradle property faldyApiBaseUrl; gunakan HTTPS untuk server publik.", color = muted)
+        }
     }
 }
 
 private fun PairingStatus.label(): String = when (this) {
     PairingStatus.Disconnected -> "Terputus"
     PairingStatus.Waiting -> "Menunggu Receiver"
-    PairingStatus.ApprovalPending -> "Menunggu persetujuan pengguna"
-    PairingStatus.Connected -> "Terhubung (status lokal prototipe)"
+    PairingStatus.ApprovalPending -> "Menunggu persetujuan Controller"
+    PairingStatus.Connected -> "Pairing disetujui"
 }
 
-private fun newPairingCode(): String = SecureRandom().nextInt(1_000_000).toString().padStart(6, '0')
+private fun formatExpiry(instant: java.time.Instant): String =
+    DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault()).format(instant)

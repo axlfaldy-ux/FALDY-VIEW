@@ -16,17 +16,19 @@ Fondasi aplikasi Android native untuk melihat layar perangkat lain dengan perset
 3. Jalankan konfigurasi `app` pada emulator atau perangkat Android.
 4. Untuk APK debug, jalankan `gradle :app:assembleDebug` (atau gunakan wrapper Gradle jika tersedia).
 
+URL backend diatur melalui property Gradle `faldyApiBaseUrl`, misalnya `gradle -PfaldyApiBaseUrl=https://api.example.test :app:assembleDebug` atau property pada `~/.gradle/gradle.properties`. Jangan commit URL privat atau kredensial. Client menolak HTTP untuk server publik; HTTP hanya diizinkan untuk loopback. Android Network Security Config juga menolak cleartext secara default.
+
 Workflow GitHub Actions membangun APK debug pada push ke `main`, pull request, dan pemicu manual. APK diunggah sebagai artifact workflow.
 
-## Tahap 2: prototipe pairing
+## Integrasi pairing Android
 
-Controller dapat membuat kode enam digit menggunakan `SecureRandom`; Receiver dapat memasukkan kode, mengirim permintaan, lalu menunggu persetujuan eksplisit. UI menampilkan status menunggu, permintaan persetujuan, status lokal tersambung, serta aksi batalkan dan putuskan.
+Controller membuat kode lewat API, Receiver mengirim kode, lalu kedua sisi memantau status persetujuan. UI menyediakan aksi setujui/tolak, batal, dan putus. Client memakai timeout koneksi/baca delapan detik, menampilkan error, dan melakukan retry/backoff hanya untuk polling GET status. Mutasi POST tidak diulang otomatis setelah timeout.
 
-Alur ini hanya memakai state dalam memori pada satu instalasi aplikasi. Kode bukan kredensial autentikasi dan status “terhubung” hanya menandai persetujuan Controller dalam prototipe, bukan koneksi ke perangkat lain. Tindakan Receiver memasukkan dan mengirim kode memulai permintaan pairing; ini belum memberi izin MediaProjection atau memulai berbagi layar. Kode tidak memiliki masa berlaku atau pembatasan percobaan pada prototipe ini. Jangan gunakan untuk sesi nyata.
+Token bearer disimpan di memori `PairingViewModel` selama proses aplikasi hidup. Jika proses mati, token hilang dan sesi server akan kedaluwarsa setelah lima menit; pemulihan sesi lintas process death belum tersedia. Kode pairing bukan autentikasi identitas. Persetujuan pairing belum memberi izin MediaProjection atau memulai berbagi layar. Belum ada uji dua perangkat.
 
 ### Layanan untuk pairing lintas perangkat
 
-Fondasi API pairing self-hosted tersedia di `backend/` dan tidak menggunakan provider berbayar. API ini belum dihubungkan ke aplikasi Android dan belum dideploy. Implementasi nyata memerlukan komponen berikut sebelum pairing dapat menghubungkan dua perangkat:
+Fondasi API pairing self-hosted tersedia di `backend/`, dan client Android kini dapat memakai endpoint yang dikonfigurasi. Belum ada host publik yang dipilih atau dideploy, sehingga pairing antarperangkat belum diuji. Implementasi deployment nyata memerlukan komponen berikut:
 
 - API HTTPS untuk meminta kode pairing, menukar kode dengan permintaan sesi, polling status, persetujuan/penolakan, dan pembatalan sesi. Route dan format request ada di `backend/README.md`.
 - Penyimpanan sesi bersama sementara (misalnya Redis) jika service dijalankan lebih dari satu instance; kode sekali pakai yang kedaluwarsa, penyimpanan kode sebagai HMAC, serta pembatasan percobaan dan laju permintaan.
@@ -35,11 +37,13 @@ Fondasi API pairing self-hosted tersedia di `backend/` dan tidak menggunakan pro
 - Proses persetujuan yang jelas di Receiver sebelum berbagi layar dimulai, indikator sesi aktif, dan cara berhenti yang selalu tersedia.
 - Saat tahap WebRTC dimulai: signaling server, STUN, dan TURN. Secret TURN harus diterbitkan oleh backend secara terbatas dan berumur pendek.
 
-Belum ada host, domain, endpoint, atau penyedia layanan yang dipilih maupun dikonfigurasi. Source backend dan dependency Node.js yang digunakan gratis/open source; biaya hosting, domain, TLS, database, STUN/TURN, dan bandwidth bergantung pada provider serta trafik. Tidak ada layanan eksternal atau berbayar yang digunakan atau dipilih. Kebutuhan, estimasi biaya provider, dan kebijakan retensi perlu dibahas sebelum deployment.
+Backend masih memakai memori proses tunggal; polling API menggunakan interval dua detik dan retry/backoff hanya untuk GET status yang aman diulang. Request perubahan state tidak di-retry otomatis setelah timeout. Token disimpan hanya selama ViewModel aktif di memori proses aplikasi; belum diuji saat process death.
+
+Source backend dan dependency Node.js yang digunakan gratis/open source; biaya hosting, domain, TLS, database, STUN/TURN, dan bandwidth bergantung pada provider serta trafik. Tidak ada layanan eksternal atau berbayar yang digunakan atau dipilih. Kebutuhan dan estimasi biaya provider perlu dibahas sebelum deployment.
 
 ## Status keamanan dan cakupan
 
-Belum ada izin MediaProjection atau Accessibility Service, pairing jaringan, WebRTC, maupun mekanisme kendali. Fitur berbagi layar nantinya harus memerlukan persetujuan eksplisit, menampilkan indikator sesi aktif, dan menyediakan tombol berhenti. Tidak ada akses layar tersembunyi.
+Belum ada izin MediaProjection atau Accessibility Service, WebRTC, maupun mekanisme kendali. Android pairing API belum diverifikasi terhadap server yang dideploy dan dua perangkat. Fitur berbagi layar nantinya harus memerlukan persetujuan eksplisit, menampilkan indikator sesi aktif, dan menyediakan tombol berhenti. Tidak ada akses layar tersembunyi.
 
 ## Langkah berikutnya
 

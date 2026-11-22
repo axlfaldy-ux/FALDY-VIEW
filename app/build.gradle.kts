@@ -4,6 +4,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val configuredApiBaseUrl = providers.gradleProperty("faldyApiBaseUrl").orElse("").get()
+val escapedApiBaseUrl = configuredApiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
+
 android {
     namespace = "com.faldy.remoteview"
     compileSdk = 35
@@ -19,8 +22,12 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "API_BASE_URL", "\"$escapedApiBaseUrl\"")
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 }
 
 kotlin {
@@ -36,5 +43,10 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
+    implementation("com.google.code.gson:gson:2.11.0")
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
