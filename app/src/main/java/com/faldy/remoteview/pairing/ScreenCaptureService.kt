@@ -71,7 +71,8 @@ class ScreenCaptureService : Service() {
                 ?: throw IllegalStateException("MediaProjection tidak tersedia")
             projection?.registerCallback(projectionCallback, handler)
             setupInitialDisplay()
-            ScreenShareState.active()
+            val captureReader = imageReader ?: throw IllegalStateException("Surface capture tidak tersedia")
+            ScreenShareState.active(captureReader.width, captureReader.height)
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) registerDisplayListener()
         } catch (exception: Exception) {
             fail("Tidak dapat memulai berbagi layar: ${exception.message ?: "kesalahan sistem"}")
@@ -150,6 +151,7 @@ class ScreenCaptureService : Service() {
     private fun resizeCapture(width: Int, height: Int) {
         if (stopping || (imageReader?.width == width && imageReader?.height == height)) return
         runCatching { createCaptureSurface(width, height) }
+            .onSuccess { imageReader?.let { ScreenShareState.resized(it.width, it.height) } }
             .onFailure { fail("Ukuran layar berubah, tetapi capture tidak dapat diperbarui") }
     }
 
@@ -194,18 +196,22 @@ class ScreenCaptureService : Service() {
 
     private fun releaseResources(stopProjection: Boolean) {
         stopping = true
-        displayListener?.let { displayManager?.unregisterDisplayListener(it) }
+        val oldListener = displayListener
         displayListener = null
+        runCatching { if (oldListener != null) displayManager?.unregisterDisplayListener(oldListener) }
         displayManager = null
-        imageReader?.setOnImageAvailableListener(null, null)
-        imageReader?.close()
+        val oldReader = imageReader
         imageReader = null
-        virtualDisplay?.release()
+        runCatching { oldReader?.setOnImageAvailableListener(null, null) }
+        runCatching { oldReader?.close() }
+        val oldDisplay = virtualDisplay
         virtualDisplay = null
+        runCatching { oldDisplay?.setSurface(null) }
+        runCatching { oldDisplay?.release() }
         val current = projection
         projection = null
-        current?.unregisterCallback(projectionCallback)
-        if (stopProjection) current?.stop()
+        runCatching { current?.unregisterCallback(projectionCallback) }
+        if (stopProjection) runCatching { current?.stop() }
     }
 
     private fun createNotificationChannel() {
