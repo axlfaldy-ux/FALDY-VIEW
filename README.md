@@ -26,6 +26,10 @@ Controller membuat kode lewat API, Receiver mengirim kode, lalu kedua sisi meman
 
 Token bearer disimpan di memori `PairingViewModel` selama proses aplikasi hidup. Jika proses mati, token hilang dan sesi server akan kedaluwarsa setelah lima menit; pemulihan sesi lintas process death belum tersedia. Kode pairing bukan autentikasi identitas. Persetujuan pairing belum memberi izin MediaProjection atau memulai berbagi layar. Belum ada uji dua perangkat.
 
+## MediaProjection Receiver
+
+Setelah Receiver menyetujui dialog pairing, tombol berbagi layar meminta persetujuan sistem Android MediaProjection secara terpisah. Capture berjalan sebagai foreground service bertipe `mediaProjection`, memiliki notifikasi dengan aksi berhenti, indikator di UI, penanganan resize/orientasi, dan dihentikan ketika sesi pairing berakhir. Frame dibaca lalu langsung dibuang secara lokal; tahap ini belum mengirim video ke Controller.
+
 ### Layanan untuk pairing lintas perangkat
 
 Fondasi API pairing self-hosted tersedia di `backend/`, dan client Android kini dapat memakai endpoint yang dikonfigurasi. Belum ada host publik yang dipilih atau dideploy, sehingga pairing antarperangkat belum diuji. Implementasi deployment nyata memerlukan komponen berikut:
@@ -43,7 +47,7 @@ Source backend dan dependency Node.js yang digunakan gratis/open source; biaya h
 
 ## Status keamanan dan cakupan
 
-Belum ada izin MediaProjection atau Accessibility Service, WebRTC, maupun mekanisme kendali. Android pairing API belum diverifikasi terhadap server yang dideploy dan dua perangkat. Fitur berbagi layar nantinya harus memerlukan persetujuan eksplisit, menampilkan indikator sesi aktif, dan menyediakan tombol berhenti. Tidak ada akses layar tersembunyi.
+Belum ada Accessibility Service, WebRTC, transmisi video, maupun mekanisme kendali. Alur system consent/foreground service belum diuji di perangkat fisik. Android pairing API belum diverifikasi terhadap server yang dideploy dan dua perangkat. Tidak ada akses layar tersembunyi.
 
 ## Langkah berikutnya
 

@@ -1,8 +1,13 @@
 package com.faldy.remoteview
 
+import android.app.Activity
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,11 +26,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,7 +40,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
+import androidx.core.content.ContextCompat
 import com.faldy.remoteview.pairing.PairingRole
+import com.faldy.remoteview.pairing.ScreenCaptureService
+import com.faldy.remoteview.pairing.ScreenShareState
+import com.faldy.remoteview.pairing.ScreenShareStatus
 import com.faldy.remoteview.pairing.PairingStatus
 import com.faldy.remoteview.pairing.PairingUiState
 import com.faldy.remoteview.pairing.PairingViewModel
@@ -53,6 +64,14 @@ class MainActivity : ComponentActivity() {
         )[PairingViewModel::class.java]
         setContent { FaldyViewApp(pairingViewModel) }
     }
+
+    override fun onDestroy() {
+        val sharing = ScreenShareState.state.value.status
+        if (isFinishing && sharing in setOf(ScreenShareStatus.Active, ScreenShareStatus.Starting)) {
+            stopService(Intent(this, ScreenCaptureService::class.java))
+        }
+        super.onDestroy()
+    }
 }
 
 @Composable
@@ -61,7 +80,27 @@ private fun FaldyViewApp(pairingViewModel: PairingViewModel) {
     var showSettings by remember { mutableStateOf(false) }
     var enteredCode by remember { mutableStateOf("") }
     val state by pairingViewModel.state.collectAsState()
+    val screenShareState by ScreenShareState.state.collectAsState()
+    val context = LocalContext.current
     val muted = Color(0xFF657086)
+    val captureConsent = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            ScreenShareState.starting()
+            val serviceIntent = Intent(context, ScreenCaptureService::class.java)
+                .putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, result.resultCode)
+                .putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, result.data)
+            runCatching { ContextCompat.startForegroundService(context, serviceIntent) }
+                .onFailure { ScreenShareState.error("Tidak dapat memulai layanan berbagi layar") }
+        } else {
+            ScreenShareState.stopped("Izin berbagi layar dibatalkan")
+        }
+    }
+
+    LaunchedEffect(state.role, state.sessionId, state.status, screenShareState.status) {
+        if (state.sessionId == null && screenShareState.status in setOf(ScreenShareStatus.Active, ScreenShareStatus.Starting)) {
+            context.stopService(Intent(context, ScreenCaptureService::class.java))
+        }
+    }
 
     MaterialTheme {
         Surface(Modifier.fillMaxSize(), color = Color(0xFFF5F7FB)) {
@@ -84,6 +123,18 @@ private fun FaldyViewApp(pairingViewModel: PairingViewModel) {
                 if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 state.error?.let { ErrorNotice(it) }
                 if (state.isReconnecting) Text("Mencoba menyambung kembali dengan aman…", color = muted)
+                if (screenShareState.status != ScreenShareStatus.Stopped) {
+                    Surface(shape = RoundedCornerShape(12.dp), color = Color.White) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(screenShareState.message, modifier = Modifier.weight(1f), color = muted)
+                            if (screenShareState.status == ScreenShareStatus.Active || screenShareState.status == ScreenShareStatus.Starting) {
+                                OutlinedButton(onClick = {
+                                    context.startService(Intent(context, ScreenCaptureService::class.java).setAction(ScreenCaptureService.ACTION_STOP))
+                                }) { Text("Hentikan") }
+                            }
+                        }
+                    }
+                }
 
                 when (screen) {
                     Screen.Dashboard -> {
@@ -123,13 +174,28 @@ private fun FaldyViewApp(pairingViewModel: PairingViewModel) {
                         onCodeChange = { enteredCode = it.filter(Char::isDigit).take(6) },
                         onJoin = { pairingViewModel.joinSession(enteredCode) },
                         onLeave = pairingViewModel::leave,
-                        onDisconnect = pairingViewModel::disconnect,
+                        onDisconnect = {
+                            if (screenShareState.status == ScreenShareStatus.Active || screenShareState.status == ScreenShareStatus.Starting) {
+                                context.stopService(Intent(context, ScreenCaptureService::class.java))
+                            }
+                            pairingViewModel.disconnect()
+                        },
+                        screenShareStatus = screenShareState.status,
+                        onStartScreenShare = {
+                            runCatching {
+                                val manager = context.getSystemService(MediaProjectionManager::class.java)
+                                captureConsent.launch(manager.createScreenCaptureIntent())
+                            }.onFailure { ScreenShareState.error("Dialog izin MediaProjection tidak dapat dibuka") }
+                        },
+                        onStopScreenShare = {
+                            context.startService(Intent(context, ScreenCaptureService::class.java).setAction(ScreenCaptureService.ACTION_STOP))
+                        },
                         muted = muted
                     )
                 }
 
                 Spacer(Modifier.weight(1f))
-                Text("Pairing memakai API HTTPS. Berbagi layar dan kontrol belum tersedia.", style = MaterialTheme.typography.bodySmall, color = muted)
+                Text("Capture layar Receiver berjalan lokal; transmisi ke Controller dan kontrol sentuhan belum tersedia.", style = MaterialTheme.typography.bodySmall, color = muted)
             }
         }
     }
@@ -186,6 +252,9 @@ private fun ReceiverScreen(
     onJoin: () -> Unit,
     onLeave: () -> Unit,
     onDisconnect: () -> Unit,
+    screenShareStatus: ScreenShareStatus,
+    onStartScreenShare: () -> Unit,
+    onStopScreenShare: () -> Unit,
     muted: Color
 ) {
     Text("Receiver", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
@@ -209,8 +278,18 @@ private fun ReceiverScreen(
         OutlinedButton(onClick = onLeave, enabled = !state.isLoading, modifier = Modifier.fillMaxWidth()) { Text("Batalkan permintaan") }
     }
     if (state.role == PairingRole.Receiver && state.status == PairingStatus.Connected) {
-        Text("Pairing disetujui. Berbagi layar belum dimulai.", color = muted)
-        OutlinedButton(onClick = onDisconnect, enabled = !state.isLoading, modifier = Modifier.fillMaxWidth()) { Text("Putuskan sesi") }
+        Text("Pairing disetujui. Izin berbagi layar diminta terpisah melalui dialog sistem.", color = muted)
+        when (screenShareStatus) {
+            ScreenShareStatus.Stopped, ScreenShareStatus.Error -> Button(onClick = onStartScreenShare, modifier = Modifier.fillMaxWidth()) {
+                Text("Izinkan dan mulai berbagi layar")
+            }
+            ScreenShareStatus.Starting -> Text("Menyiapkan capture layar…", color = muted)
+            ScreenShareStatus.Active -> Text("Capture lokal aktif; layar belum dikirim ke Controller.", color = muted)
+        }
+        OutlinedButton(onClick = onDisconnect, enabled = !state.isLoading, modifier = Modifier.fillMaxWidth()) { Text("Putuskan sesi pairing") }
+        if (screenShareStatus == ScreenShareStatus.Active || screenShareStatus == ScreenShareStatus.Starting) {
+            OutlinedButton(onClick = onStopScreenShare, modifier = Modifier.fillMaxWidth()) { Text("Hentikan berbagi layar") }
+        }
     }
 }
 
