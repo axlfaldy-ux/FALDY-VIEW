@@ -166,7 +166,7 @@ class PairingViewModel(baseUrl: String) : ViewModel() {
 
     private fun friendlyError(exception: Exception): String = when (exception) {
         is PairingApiException -> when {
-            exception.httpStatus == null -> "Jaringan timeout atau terputus. Operasi tidak diulang otomatis karena hasilnya mungkin sudah diproses server."
+            exception.httpStatus == null -> "Jaringan timeout; permintaan mungkin sudah diproses. Tidak ada retry otomatis. Cek status kedua sisi atau tunggu sesi kedaluwarsa (maksimal lima menit) sebelum mulai ulang."
             exception.apiError == "pairing_code_unavailable" -> "Kode tidak ditemukan, sudah dipakai, atau kedaluwarsa."
             exception.apiError == "rate_limited" -> "Terlalu banyak percobaan. Tunggu sebelum mencoba lagi."
             exception.apiError == "unauthorized" -> "Token sesi ditolak oleh server."
